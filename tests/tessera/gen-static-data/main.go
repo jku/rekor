@@ -29,36 +29,37 @@ func main() {
 
 	// Write checkpoint
 	checkpointContent := fmt.Sprintf("example.com\n2\n%s\n", base64.StdEncoding.EncodeToString(rootHash))
-	err := os.WriteFile(filepath.Join(outDir, "checkpoint"), []byte(checkpointContent), 0644)
+	err := os.WriteFile(filepath.Join(outDir, "checkpoint"), []byte(checkpointContent), 0644) // nolint:gosec
 	if err != nil {
 		panic(err)
 	}
 
 	// Write entry bundle 0 with 2 entries
 	bundleBuf := &bytes.Buffer{}
-	binary.Write(bundleBuf, binary.BigEndian, uint16(len(leaf0)))
+	_ = binary.Write(bundleBuf, binary.BigEndian, uint16(len(leaf0)))
 	bundleBuf.Write(leaf0)
-	binary.Write(bundleBuf, binary.BigEndian, uint16(len(leaf1)))
+	_ = binary.Write(bundleBuf, binary.BigEndian, uint16(len(leaf1)))
 	bundleBuf.Write(leaf1)
 
 	bundlePath := filepath.Join(outDir, layout.EntriesPath(0, 2))
-	err = os.MkdirAll(filepath.Dir(bundlePath), 0755)
+	err = os.MkdirAll(filepath.Dir(bundlePath), 0755) // nolint:gosec
 	if err != nil {
 		panic(err)
 	}
-	err = os.WriteFile(bundlePath, bundleBuf.Bytes(), 0644)
+	err = os.WriteFile(bundlePath, bundleBuf.Bytes(), 0644) // nolint:gosec
 	if err != nil {
 		panic(err)
 	}
 
 	// Write tile 0,0 with 2 leaf hashes
 	tilePath := filepath.Join(outDir, layout.TilePath(0, 0, 2))
-	err = os.MkdirAll(filepath.Dir(tilePath), 0755)
+	err = os.MkdirAll(filepath.Dir(tilePath), 0755) // nolint:gosec
 	if err != nil {
 		panic(err)
 	}
-	tileBuf := append(h0, h1...)
-	err = os.WriteFile(tilePath, tileBuf, 0644)
+	tileBuf := append([]byte(nil), h0...)
+	tileBuf = append(tileBuf, h1...)
+	err = os.WriteFile(tilePath, tileBuf, 0644) // nolint:gosec
 	if err != nil {
 		panic(err)
 	}

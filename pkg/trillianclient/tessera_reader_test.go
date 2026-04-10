@@ -196,15 +196,15 @@ func TestTesseraReader_GetConsistencyProof(t *testing.T) {
 
 func TestTesseraReader_GetLeafAndProofByIndex_Size2(t *testing.T) {
 	tmpDir := t.TempDir()
-	
+
 	leaf0 := []byte("leaf0_data")
 	leaf1 := []byte("leaf1_data")
-	
+
 	h0 := rfc6962.DefaultHasher.HashLeaf(leaf0)
 	h1 := rfc6962.DefaultHasher.HashLeaf(leaf1)
-	
+
 	rootHash := rfc6962.DefaultHasher.HashChildren(h0, h1)
-	
+
 	// Write a dummy checkpoint file for tree size 2
 	checkpointContent := fmt.Sprintf("example.com\n2\n%s\n", base64.StdEncoding.EncodeToString(rootHash))
 	err := os.WriteFile(filepath.Join(tmpDir, "checkpoint"), []byte(checkpointContent), 0644)
@@ -218,7 +218,7 @@ func TestTesseraReader_GetLeafAndProofByIndex_Size2(t *testing.T) {
 	bundleBuf.Write(leaf0)
 	binary.Write(bundleBuf, binary.BigEndian, uint16(len(leaf1)))
 	bundleBuf.Write(leaf1)
-	
+
 	bundlePath := filepath.Join(tmpDir, layout.EntriesPath(0, 2))
 	err = os.MkdirAll(filepath.Dir(bundlePath), 0755)
 	if err != nil {
@@ -235,7 +235,8 @@ func TestTesseraReader_GetLeafAndProofByIndex_Size2(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	tileBuf := append(h0, h1...)
+	tileBuf := append([]byte(nil), h0...)
+	tileBuf = append(tileBuf, h1...)
 	err = os.WriteFile(tilePath, tileBuf, 0644)
 	if err != nil {
 		t.Fatal(err)
@@ -246,14 +247,14 @@ func TestTesseraReader_GetLeafAndProofByIndex_Size2(t *testing.T) {
 
 	// Fetch leaf 0
 	resp := reader.GetLeafAndProofByIndex(ctx, 0)
-	
+
 	if resp.Status != codes.OK {
 		t.Errorf("Expected status OK, got %v", resp.Status)
 	}
 	if resp.GetLeafAndProofResult == nil {
 		t.Fatal("Expected GetLeafAndProofResult to be non-nil")
 	}
-	
+
 	// Verify content
 	if string(resp.GetLeafAndProofResult.Leaf.LeafValue) != string(leaf0) {
 		t.Errorf("Expected leaf value %s, got %s", string(leaf0), string(resp.GetLeafAndProofResult.Leaf.LeafValue))
@@ -261,7 +262,7 @@ func TestTesseraReader_GetLeafAndProofByIndex_Size2(t *testing.T) {
 	if !bytes.Equal(resp.GetLeafAndProofResult.Leaf.MerkleLeafHash, h0) {
 		t.Errorf("Expected leaf hash %x, got %x", h0, resp.GetLeafAndProofResult.Leaf.MerkleLeafHash)
 	}
-	
+
 	// Proof for leaf 0 in size 2 should contain h1!
 	if len(resp.GetLeafAndProofResult.Proof.Hashes) != 1 {
 		t.Errorf("Expected proof of length 1, got %d", len(resp.GetLeafAndProofResult.Proof.Hashes))
