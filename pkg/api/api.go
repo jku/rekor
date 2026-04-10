@@ -109,7 +109,9 @@ func NewAPI(treeID int64) (*API, error) {
 			inactiveGRPCConfigs[r.TreeID] = *r.GRPCConfig
 		}
 	}
-	tcm := trillianclient.NewClientManager(inactiveGRPCConfigs, defaultGRPCConfig)
+	backend := viper.GetString("rekor_server.backend")
+	tesseraStoragePath := viper.GetString("rekor_server.tessera.storage_path")
+	tcm := trillianclient.NewClientManager(inactiveGRPCConfigs, defaultGRPCConfig, backend, tesseraStoragePath)
 
 	roots, err := ranges.CompleteInitialization(ctx, tcm)
 	if err != nil {

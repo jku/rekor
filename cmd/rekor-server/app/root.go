@@ -102,6 +102,8 @@ func init() {
 	}
 	rootCmd.PersistentFlags().String("rekor_server.hostname", hostname, "public hostname of instance")
 	rootCmd.PersistentFlags().String("rekor_server.address", "127.0.0.1", "Address to bind to")
+	rootCmd.PersistentFlags().String("rekor_server.backend", "trillian", "storage backend to use (trillian/tessera)")
+	rootCmd.PersistentFlags().String("rekor_server.tessera.storage_path", "", "path to Tessera POSIX storage (required if backend is tessera)")
 
 	rootCmd.PersistentFlags().String("rekor_server.signer", "memory",
 		`Rekor signer to use. Valid options are: [awskms://keyname, azurekms://keyname, gcpkms://keyname, hashivault://keyname, memory, tink, <filename containing PEM-encoded private key>].

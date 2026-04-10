@@ -53,15 +53,20 @@ type ClientManager struct {
 	treeIDToConfig map[int64]GRPCConfig
 	// defaultConfig is the global fallback configuration.
 	defaultConfig GRPCConfig
+
+	backend            string
+	tesseraStoragePath string
 }
 
 // NewClientManager creates a new ClientManager.
-func NewClientManager(treeIDToConfig map[int64]GRPCConfig, defaultConfig GRPCConfig) *ClientManager {
+func NewClientManager(treeIDToConfig map[int64]GRPCConfig, defaultConfig GRPCConfig, backend, tesseraStoragePath string) *ClientManager {
 	return &ClientManager{
-		connections:     make(map[GRPCConfig]*grpc.ClientConn),
-		treeIDToConfig:  treeIDToConfig,
-		defaultConfig:   defaultConfig,
-		trillianClients: make(map[int64]*TrillianClient),
+		connections:        make(map[GRPCConfig]*grpc.ClientConn),
+		treeIDToConfig:     treeIDToConfig,
+		defaultConfig:      defaultConfig,
+		trillianClients:    make(map[int64]*TrillianClient),
+		backend:            backend,
+		tesseraStoragePath: tesseraStoragePath,
 	}
 }
 
@@ -129,6 +134,14 @@ func (cm *ClientManager) GetTrillianClient(treeID int64) (*TrillianClient, error
 	newClient := newTrillianClient(trillian.NewTrillianLogClient(conn), treeID)
 	cm.trillianClients[treeID] = newClient
 	return newClient, nil
+}
+
+// GetLogReader returns a LogReader for the given tree ID, respecting the configured backend.
+func (cm *ClientManager) GetLogReader(treeID int64) (LogReader, error) {
+	if cm.backend == "tessera" {
+		return NewTesseraReader(cm.tesseraStoragePath), nil
+	}
+	return cm.GetTrillianClient(treeID)
 }
 
 func CreateAndInitTree(ctx context.Context, config GRPCConfig) (*trillian.Tree, error) {
