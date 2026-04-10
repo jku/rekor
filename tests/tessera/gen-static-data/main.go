@@ -1,0 +1,67 @@
+package main
+
+import (
+	"bytes"
+	"encoding/base64"
+	"encoding/binary"
+	"fmt"
+	"os"
+	"path/filepath"
+
+	"github.com/transparency-dev/merkle/rfc6962"
+	"github.com/transparency-dev/tessera/api/layout"
+)
+
+func main() {
+	if len(os.Args) < 2 {
+		fmt.Println("Usage: go run main.go <output_dir>")
+		os.Exit(1)
+	}
+	outDir := os.Args[1]
+
+	leaf0 := []byte("leaf0_data")
+	leaf1 := []byte("leaf1_data")
+
+	h0 := rfc6962.DefaultHasher.HashLeaf(leaf0)
+	h1 := rfc6962.DefaultHasher.HashLeaf(leaf1)
+
+	rootHash := rfc6962.DefaultHasher.HashChildren(h0, h1)
+
+	// Write checkpoint
+	checkpointContent := fmt.Sprintf("example.com\n2\n%s\n", base64.StdEncoding.EncodeToString(rootHash))
+	err := os.WriteFile(filepath.Join(outDir, "checkpoint"), []byte(checkpointContent), 0644)
+	if err != nil {
+		panic(err)
+	}
+
+	// Write entry bundle 0 with 2 entries
+	bundleBuf := &bytes.Buffer{}
+	binary.Write(bundleBuf, binary.BigEndian, uint16(len(leaf0)))
+	bundleBuf.Write(leaf0)
+	binary.Write(bundleBuf, binary.BigEndian, uint16(len(leaf1)))
+	bundleBuf.Write(leaf1)
+
+	bundlePath := filepath.Join(outDir, layout.EntriesPath(0, 2))
+	err = os.MkdirAll(filepath.Dir(bundlePath), 0755)
+	if err != nil {
+		panic(err)
+	}
+	err = os.WriteFile(bundlePath, bundleBuf.Bytes(), 0644)
+	if err != nil {
+		panic(err)
+	}
+
+	// Write tile 0,0 with 2 leaf hashes
+	tilePath := filepath.Join(outDir, layout.TilePath(0, 0, 2))
+	err = os.MkdirAll(filepath.Dir(tilePath), 0755)
+	if err != nil {
+		panic(err)
+	}
+	tileBuf := append(h0, h1...)
+	err = os.WriteFile(tilePath, tileBuf, 0644)
+	if err != nil {
+		panic(err)
+	}
+
+	fmt.Println("Static Tessera data generated in", outDir)
+}

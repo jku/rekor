@@ -1,0 +1,26 @@
+services:
+  rekor-server:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    command: [
+      "rekor-server", "serve",
+      "--rekor_server.backend=tessera",
+      "--rekor_server.tessera.storage_path=/tessera-data",
+      "--port=3001",
+      "--rekor_server.address=0.0.0.0",
+      "--enable_retrieve_api=false",
+      "--enabled_api_endpoints=getLogInfo,getLogEntryByIndex,getLogProof",
+      "--trillian_log_server.tlog_id=1",
+      "--rekor_server.signer=memory"
+    ]
+    volumes:
+      - ./tests/tessera/data:/tessera-data
+    ports:
+      - "3001:3001"
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:3001/api/v1/log"]
+      interval: 2s
+      timeout: 2s
+      retries: 5
+      start_period: 2s
