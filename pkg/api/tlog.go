@@ -31,16 +31,19 @@ import (
 
 	"github.com/sigstore/rekor/pkg/generated/models"
 	"github.com/sigstore/rekor/pkg/generated/restapi/operations/tlog"
+	"github.com/sigstore/rekor/pkg/trillianclient"
 	"github.com/sigstore/rekor/pkg/util"
 )
 
 // GetLogInfoHandler returns the current size of the tree and the STH
 func GetLogInfoHandler(params tlog.GetLogInfoParams) middleware.Responder {
 	ctx := params.HTTPRequest.Context()
-	tc, err := api.trillianClientManager.GetTrillianClient(api.ActiveTreeID())
+	var tc trillianclient.LogReader
+	tClient, err := api.trillianClientManager.GetTrillianClient(api.ActiveTreeID())
 	if err != nil {
 		return handleRekorAPIError(params, http.StatusInternalServerError, err, trillianCommunicationError)
 	}
+	tc = tClient
 
 	// for each inactive shard, get the loginfo
 	var inactiveShards []*models.InactiveShardLogInfo
@@ -108,10 +111,12 @@ func GetLogProofHandler(params tlog.GetLogProofParams) middleware.Responder {
 		}
 		treeID = id
 	}
-	tc, err := api.trillianClientManager.GetTrillianClient(treeID)
+	var tc trillianclient.LogReader
+	tClient, err := api.trillianClientManager.GetTrillianClient(treeID)
 	if err != nil {
 		return handleRekorAPIError(params, http.StatusInternalServerError, err, trillianCommunicationError)
 	}
+	tc = tClient
 
 	resp := tc.GetConsistencyProof(ctx, *params.FirstSize, params.LastSize)
 	if resp.Status != codes.OK {
@@ -148,10 +153,12 @@ func GetLogProofHandler(params tlog.GetLogProofParams) middleware.Responder {
 }
 
 func inactiveShardLogInfo(ctx context.Context, tid int64, cachedCheckpoints map[int64]string) (*models.InactiveShardLogInfo, error) {
-	tc, err := api.trillianClientManager.GetTrillianClient(tid)
+	var tc trillianclient.LogReader
+	tClient, err := api.trillianClientManager.GetTrillianClient(tid)
 	if err != nil {
 		return nil, fmt.Errorf("getting log client for tree %d: %w", tid, err)
 	}
+	tc = tClient
 	resp := tc.GetLatest(ctx, 0)
 	if resp.Status != codes.OK {
 		return nil, fmt.Errorf("resp code is %d", resp.Status)
