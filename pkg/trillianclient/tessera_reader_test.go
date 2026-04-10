@@ -16,12 +16,18 @@
 package trillianclient
 
 import (
+	"bytes"
 	"context"
+	"encoding/base64"
+	"encoding/binary"
+	"fmt"
 	"os"
 	"path/filepath"
 	"testing"
 
 	"github.com/google/trillian/types"
+	"github.com/transparency-dev/merkle/rfc6962"
+	"github.com/transparency-dev/tessera/api/layout"
 	"google.golang.org/grpc/codes"
 )
 
@@ -63,16 +69,63 @@ func TestTesseraReader_GetLatest(t *testing.T) {
 
 func TestTesseraReader_GetLeafAndProofByIndex(t *testing.T) {
 	tmpDir := t.TempDir()
+	
+	leafData := []byte("example_leaf_data")
+	leafHash := rfc6962.DefaultHasher.HashLeaf(leafData)
+	
+	// Write a dummy checkpoint file for tree size 1
+	checkpointContent := fmt.Sprintf("example.com\n1\n%s\n", base64.StdEncoding.EncodeToString(leafHash))
+	err := os.WriteFile(filepath.Join(tmpDir, "checkpoint"), []byte(checkpointContent), 0644)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Write entry bundle 0 with 1 entry
+	bundleBuf := &bytes.Buffer{}
+	binary.Write(bundleBuf, binary.BigEndian, uint16(len(leafData)))
+	bundleBuf.Write(leafData)
+	
+	bundlePath := filepath.Join(tmpDir, layout.EntriesPath(0, 1))
+	err = os.MkdirAll(filepath.Dir(bundlePath), 0755)
+	if err != nil {
+		t.Fatal(err)
+	}
+	err = os.WriteFile(bundlePath, bundleBuf.Bytes(), 0644)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Write tile 0,0 with 1 leaf hash
+	tilePath := filepath.Join(tmpDir, layout.TilePath(0, 0, 1))
+	err = os.MkdirAll(filepath.Dir(tilePath), 0755)
+	if err != nil {
+		t.Fatal(err)
+	}
+	err = os.WriteFile(tilePath, leafHash, 0644)
+	if err != nil {
+		t.Fatal(err)
+	}
+
 	reader := NewTesseraReader(tmpDir)
 	ctx := context.Background()
 
 	resp := reader.GetLeafAndProofByIndex(ctx, 0)
 	
-	// This assertion will fail now, but should pass later.
 	if resp.Status != codes.OK {
 		t.Errorf("Expected status OK, got %v", resp.Status)
 	}
 	if resp.GetLeafAndProofResult == nil {
-		t.Error("Expected GetLeafAndProofResult to be non-nil")
+		t.Fatal("Expected GetLeafAndProofResult to be non-nil")
+	}
+	
+	// Verify content
+	if string(resp.GetLeafAndProofResult.Leaf.LeafValue) != string(leafData) {
+		t.Errorf("Expected leaf value %s, got %s", string(leafData), string(resp.GetLeafAndProofResult.Leaf.LeafValue))
+	}
+	if !bytes.Equal(resp.GetLeafAndProofResult.Leaf.MerkleLeafHash, leafHash) {
+		t.Errorf("Expected leaf hash %x, got %x", leafHash, resp.GetLeafAndProofResult.Leaf.MerkleLeafHash)
+	}
+	if len(resp.GetLeafAndProofResult.Proof.Hashes) != 0 {
+		t.Errorf("Expected empty proof for size 1, got %d hashes", len(resp.GetLeafAndProofResult.Proof.Hashes))
 	}
 }

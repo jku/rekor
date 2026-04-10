@@ -18,6 +18,7 @@ package trillianclient
 import (
 	"context"
 	"errors"
+	"fmt"
 	"io/fs"
 	"os"
 	"path/filepath"
@@ -25,6 +26,10 @@ import (
 	"github.com/google/trillian"
 	"github.com/google/trillian/types"
 	"github.com/sigstore/rekor/pkg/util"
+	"github.com/transparency-dev/merkle/rfc6962"
+	"github.com/transparency-dev/tessera/api"
+	"github.com/transparency-dev/tessera/api/layout"
+	"github.com/transparency-dev/tessera/client"
 	"google.golang.org/grpc/codes"
 )
 
@@ -38,6 +43,50 @@ func NewTesseraReader(basePath string) *TesseraReader {
 	return &TesseraReader{basePath: basePath}
 }
 
+func (r *TesseraReader) tileFetcher(ctx context.Context, level, index uint64, p uint8) ([]byte, error) {
+	if p > 0 {
+		path := filepath.Join(r.basePath, layout.TilePath(level, index, p))
+		data, err := os.ReadFile(path)
+		if err == nil {
+			return data, nil
+		}
+		if !errors.Is(err, fs.ErrNotExist) {
+			return nil, err
+		}
+	}
+	path := filepath.Join(r.basePath, layout.TilePath(level, index, 0))
+	data, err := os.ReadFile(path)
+	if err != nil {
+		if errors.Is(err, fs.ErrNotExist) {
+			return nil, os.ErrNotExist
+		}
+		return nil, err
+	}
+	return data, nil
+}
+
+func (r *TesseraReader) entryBundleFetcher(ctx context.Context, bundleIndex uint64, p uint8) ([]byte, error) {
+	if p > 0 {
+		path := filepath.Join(r.basePath, layout.EntriesPath(bundleIndex, p))
+		data, err := os.ReadFile(path)
+		if err == nil {
+			return data, nil
+		}
+		if !errors.Is(err, fs.ErrNotExist) {
+			return nil, err
+		}
+	}
+	path := filepath.Join(r.basePath, layout.EntriesPath(bundleIndex, 0))
+	data, err := os.ReadFile(path)
+	if err != nil {
+		if errors.Is(err, fs.ErrNotExist) {
+			return nil, os.ErrNotExist
+		}
+		return nil, err
+	}
+	return data, nil
+}
+
 func (r *TesseraReader) GetLeafAndProofByHash(ctx context.Context, hash []byte) *Response {
 	return &Response{
 		Status: codes.Unimplemented,
@@ -46,9 +95,91 @@ func (r *TesseraReader) GetLeafAndProofByHash(ctx context.Context, hash []byte) 
 }
 
 func (r *TesseraReader) GetLeafAndProofByIndex(ctx context.Context, index int64) *Response {
+	if index < 0 {
+		return &Response{
+			Status: codes.InvalidArgument,
+			Err:    fmt.Errorf("invalid index %d", index),
+		}
+	}
+
+	latestResp := r.GetLatest(ctx, 0)
+	if latestResp.Status != codes.OK {
+		return latestResp
+	}
+	var root types.LogRootV1
+	if err := root.UnmarshalBinary(latestResp.GetLatestResult.SignedLogRoot.LogRoot); err != nil {
+		return &Response{
+			Status: codes.Internal,
+			Err:    err,
+		}
+	}
+	treeSize := root.TreeSize
+
+	if uint64(index) >= treeSize {
+		return &Response{
+			Status: codes.NotFound,
+			Err:    fmt.Errorf("index %d out of bounds for tree size %d", index, treeSize),
+		}
+	}
+
+	bundleIndex := uint64(index) / layout.EntryBundleWidth
+	pBundle := layout.PartialTileSize(0, bundleIndex, treeSize)
+	
+	bundleRaw, err := r.entryBundleFetcher(ctx, bundleIndex, pBundle)
+	if err != nil {
+		return &Response{
+			Status: codes.Internal,
+			Err:    err,
+		}
+	}
+	
+	var bundle api.EntryBundle
+	if err := bundle.UnmarshalText(bundleRaw); err != nil {
+		return &Response{
+			Status: codes.Internal,
+			Err:    err,
+		}
+	}
+	
+	intraBundleIndex := uint64(index) % layout.EntryBundleWidth
+	if intraBundleIndex >= uint64(len(bundle.Entries)) {
+		return &Response{
+			Status: codes.Internal,
+			Err:    fmt.Errorf("index %d not found in bundle %d (len %d)", index, bundleIndex, len(bundle.Entries)),
+		}
+	}
+	leafData := bundle.Entries[intraBundleIndex]
+	leafHash := rfc6962.DefaultHasher.HashLeaf(leafData)
+
+	pb, err := client.NewProofBuilder(ctx, treeSize, r.tileFetcher)
+	if err != nil {
+		return &Response{
+			Status: codes.Internal,
+			Err:    err,
+		}
+	}
+	
+	proof, err := pb.InclusionProof(ctx, uint64(index))
+	if err != nil {
+		return &Response{
+			Status: codes.Internal,
+			Err:    err,
+		}
+	}
+
 	return &Response{
-		Status: codes.Unimplemented,
-		Err:    errors.New("TesseraReader.GetLeafAndProofByIndex not implemented"),
+		Status: codes.OK,
+		GetLeafAndProofResult: &trillian.GetEntryAndProofResponse{
+			Leaf: &trillian.LogLeaf{
+				LeafValue:      leafData,
+				LeafIndex:      index,
+				MerkleLeafHash: leafHash,
+			},
+			Proof: &trillian.Proof{
+				LeafIndex: index,
+				Hashes:    proof,
+			},
+		},
 	}
 }
 
