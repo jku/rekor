@@ -15,12 +15,17 @@ The following methods from `pkg/trillianclient/trillian_client.go` are needed fo
 
 | Method | Purpose | Tessera Client Equivalent |
 | :--- | :--- | :--- |
-| `GetLeafAndProofByHash(ctx, hash)` | Fetch leaf and inclusion proof by Merkle leaf hash | `client.ProofBuilder.InclusionProof` (after finding index) |
+| `GetLeafAndProofByHash(ctx, hash)` | Fetch leaf and inclusion proof by Merkle leaf hash | `client.ProofBuilder.InclusionProof` (see [Lookup by Hash](#lookup-by-hash) below) |
 | `GetLeafAndProofByIndex(ctx, index)` | Fetch leaf and inclusion proof by log index | `client.ProofBuilder.InclusionProof` + `client.GetEntryBundle` |
 | `GetLatest(ctx, leafSize)` | Fetch the latest signed log root | `client.FetchCheckpoint` |
 | `GetConsistencyProof(ctx, first, last)` | Fetch consistency proof between two tree sizes | `client.ProofBuilder.ConsistencyProof` |
 | `GetLeavesByRange(ctx, start, count)` | Fetch a range of leaves without proofs | `client.GetEntryBundle` (iterating over tiles if needed) |
 | `GetLeafWithoutProof(ctx, index)` | Fetch a single leaf by index | `client.GetEntryBundle` |
+
+
+### Lookup by Hash
+
+Tessera does not natively support lookup by hash. For the initial read-only migration, `GetLeafAndProofByHash` is left unimplemented. Production deployments requiring lookup by hash will need a sidecar index (e.g., a database mapping entry hash to log index).
 
 ### Response Translation
 
