@@ -90,14 +90,24 @@ Since the target state is a read-only log, we can perform a static migration fro
 2.  [x] Refactor existing Rekor API handlers to use this interface instead of directly calling `TrillianClient`.
 3.  [x] Create a dummy `TesseraReader` implementation that returns errors to verify the refactoring.
 
-### Phase 2: Tessera Reader Implementation
-1.  Implement the `LogReader` interface using the Tessera client library (`reference/tessera/client`).
-2.  This implementation will read from a specified storage location (e.g., a directory containing POSIX tiles).
-3.  Add configuration options to Rekor to select the Tessera backend and specify the storage path.
+### Phase 2: Tessera POSIX Reader Implementation
+1.  [x] Implement the `LogReader` interface using the Tessera client library (`reference/tessera/client`).
+2.  [x] This implementation will read from a specified storage location (e.g., a directory containing POSIX tiles).
+3.  [x] Add configuration options to Rekor to select the Tessera backend and specify the storage path.
 
 ### Phase 3: Migration Tooling
-1.  Develop a migration tool that connects to a Trillian log, reads all entries, and writes them to Tessera storage in the correct tile layout.
-2.  Verify the migrated log by comparing the root hash with the original Trillian log.
+1.  **Develop Migration Tool**: Create a Go CLI tool (e.g., `cmd/tessera-migrate`) that:
+    *   Connects to the source Trillian log via gRPC.
+    *   Reads entries in batches using `GetLeavesByRange`.
+    *   Processes entries into Tessera entry bundles (mapping to tiles).
+    *   Computes the Merkle tree hashes and writes Hash Tiles using Tessera libraries.
+    *   Generates the final `checkpoint` file.
+2.  **Support Resumability**: Ensure the tool can resume from a saved index to handle large logs without restarting.
+3.  **Verification**: Implement a mode that compares the generated Tessera root hash with the Trillian root hash for the same tree size.
+
+### Phase 4: GCP backend
+
+We want to support cloud storage for Tessera tiles as well.
 
 ## 5. Scalability (1B+ Entries)
 
@@ -118,11 +128,17 @@ To ensure correctness and maintain API compatibility without changes, we will em
 *   **Reader Implementation**: Use a mock or a small set of static tiles on the local filesystem to unit test the `TesseraReader` methods without requiring a full running log.
 
 ### Integration Testing (End-to-End)
-*   **Local E2E Flow**:
-    1.  Set up a small Trillian log with a few hundred entries.
-    2.  Run the migration tool to create a POSIX Tessera log.
-    3.  Start the modified Rekor server pointing to the POSIX log.
-    4.  Run a subset of Rekor's existing E2E tests (specifically read paths like `get-log-info`, `get-log-entry`) against the server.
+*   **Running the Logs**:
+    *   **Trillian**: We will use the existing `docker-compose.yml` in the Rekor repository to spin up the Trillian log server, log signer, and MySQL database.
+    *   **Tessera**: We will use `docker-compose.tessera.yml` to run `rekor-server` configured with the `tessera` backend pointing to the migrated data directory.
+*   **Adding Test Data**:
+    *   We will populate the Trillian log by running the existing Rekor E2E tests or a custom script that uses `rekor-cli` to submit entries (e.g., `hashedrekord` entries). This creates a realistic source log.
+*   **Validating the Migration**:
+    1.  Stop writes to the Trillian log to ensure a static state.
+    2.  Run the migration tool to export data from Trillian to a local directory in Tessera layout.
+    3.  Compare the root hash in the generated Tessera `checkpoint` with the final root hash from Trillian (fetched via `rekor-cli loginfo` before stopping).
+    4.  Start the Tessera-backed `rekor-server`.
+    5.  Use `rekor-cli` or `curl` to fetch entries by index and verify that the data returned by the Tessera backend matches exactly what was submitted to Trillian.
 
 ### Differential Testing (Golden Tests)
 *   Compare responses from the existing Trillian-backed Rekor and the new Tessera-backed Rekor for the exact same queries (e.g., fetching specific indices or proofs). The JSON responses must match exactly.
