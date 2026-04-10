@@ -31,6 +31,13 @@ Tessera does not natively support lookup by hash. For the initial read-only migr
 
 Tessera returns raw bytes for entries and proofs. The compatibility layer must translate these into the Trillian-specific structures currently expected by Rekor's handlers (e.g., `trillian.GetEntryAndProofResponse`).
 
+### Configuration Flags
+
+The following flags were added to `rekor-server` to support the Tessera backend:
+
+*   `--rekor_server.backend`: Specifies the log backend to use. Options are `trillian` (default) and `tessera`.
+*   `--rekor_server.tessera.storage_path`: Specifies the directory path where Tessera tiles and checkpoint are stored (applicable when backend is `tessera`).
+
 ## 2. Public Endpoints to Support
 
 The following Rekor public HTTP read endpoints will be supported. They will use the internal abstraction (which maps to Tessera client calls) to fulfill requests.
@@ -126,3 +133,11 @@ To ensure correctness and maintain API compatibility without changes, we will em
 ## 7. Decisions Made
 *   **Storage Backend**: We will target **POSIX** first for local testing and initial implementation, but we will need to support **GCS** as well for production readiness (especially for scale).
 *   **Key Management**: We will keep using the **same key** as the existing Rekor log for signing the checkpoint in the migrated Tessera log, to avoid breaking trust for existing clients.
+
+## 8. Architectural Notes
+
+### Read-Only Assumption
+The current implementation of the Tessera backend in Rekor assumes that the entire log is read-only. It does not support appending new entries (write path). This is suitable for migrating historical data or serving a frozen log.
+
+### Future Extension: Hybrid Backend for Sharded Logs
+While the current implementation applies the Tessera backend globally, it could be extended to support a hybrid model. In this model frozen shards of the log could be served from a cost-effective Tessera tile storage and active shard (writable) would continue to be served by Trillian to support high-throughput writes.
