@@ -129,3 +129,67 @@ func TestTesseraReader_GetLeafAndProofByIndex(t *testing.T) {
 		t.Errorf("Expected empty proof for size 1, got %d hashes", len(resp.GetLeafAndProofResult.Proof.Hashes))
 	}
 }
+
+func TestTesseraReader_GetLeavesByRange(t *testing.T) {
+	tmpDir := t.TempDir()
+	
+	leafData := []byte("example_leaf_data")
+	leafHash := rfc6962.DefaultHasher.HashLeaf(leafData)
+	
+	// Write a dummy checkpoint file for tree size 1
+	checkpointContent := fmt.Sprintf("example.com\n1\n%s\n", base64.StdEncoding.EncodeToString(leafHash))
+	err := os.WriteFile(filepath.Join(tmpDir, "checkpoint"), []byte(checkpointContent), 0644)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Write entry bundle 0 with 1 entry
+	bundleBuf := &bytes.Buffer{}
+	binary.Write(bundleBuf, binary.BigEndian, uint16(len(leafData)))
+	bundleBuf.Write(leafData)
+	
+	bundlePath := filepath.Join(tmpDir, layout.EntriesPath(0, 1))
+	err = os.MkdirAll(filepath.Dir(bundlePath), 0755)
+	if err != nil {
+		t.Fatal(err)
+	}
+	err = os.WriteFile(bundlePath, bundleBuf.Bytes(), 0644)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	reader := NewTesseraReader(tmpDir)
+	ctx := context.Background()
+
+	resp := reader.GetLeavesByRange(ctx, 0, 1)
+	
+	if resp.Status != codes.OK {
+		t.Errorf("Expected status OK, got %v", resp.Status)
+	}
+	if resp.GetLeavesByRangeResult == nil {
+		t.Fatal("Expected GetLeavesByRangeResult to be non-nil")
+	}
+	
+	if len(resp.GetLeavesByRangeResult.Leaves) != 1 {
+		t.Errorf("Expected 1 leaf, got %d", len(resp.GetLeavesByRangeResult.Leaves))
+	}
+	if string(resp.GetLeavesByRangeResult.Leaves[0].LeafValue) != string(leafData) {
+		t.Errorf("Expected leaf value %s, got %s", string(leafData), string(resp.GetLeavesByRangeResult.Leaves[0].LeafValue))
+	}
+}
+
+func TestTesseraReader_GetConsistencyProof(t *testing.T) {
+	tmpDir := t.TempDir()
+	
+	reader := NewTesseraReader(tmpDir)
+	ctx := context.Background()
+
+	// Test from size 0 to 1
+	resp := reader.GetConsistencyProof(ctx, 0, 1)
+	if resp.Status != codes.OK {
+		t.Errorf("Expected status OK, got %v", resp.Status)
+	}
+	if len(resp.GetConsistencyProofResult.Proof.Hashes) != 0 {
+		t.Errorf("Expected empty proof, got %d hashes", len(resp.GetConsistencyProofResult.Proof.Hashes))
+	}
+}

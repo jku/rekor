@@ -228,22 +228,131 @@ func (r *TesseraReader) GetLatest(ctx context.Context, leafSizeInt int64) *Respo
 }
 
 func (r *TesseraReader) GetConsistencyProof(ctx context.Context, firstSize, lastSize int64) *Response {
+	if firstSize < 0 || lastSize < 0 || firstSize > lastSize {
+		return &Response{
+			Status: codes.InvalidArgument,
+			Err:    fmt.Errorf("invalid sizes: first=%d, last=%d", firstSize, lastSize),
+		}
+	}
+
+	if firstSize == 0 {
+		return &Response{
+			Status: codes.OK,
+			GetConsistencyProofResult: &trillian.GetConsistencyProofResponse{
+				Proof: &trillian.Proof{
+					Hashes: [][]byte{},
+				},
+			},
+		}
+	}
+
+	pb, err := client.NewProofBuilder(ctx, uint64(lastSize), r.tileFetcher)
+	if err != nil {
+		return &Response{
+			Status: codes.Internal,
+			Err:    err,
+		}
+	}
+
+	proofHashes, err := pb.ConsistencyProof(ctx, uint64(firstSize), uint64(lastSize))
+	if err != nil {
+		return &Response{
+			Status: codes.Internal,
+			Err:    err,
+		}
+	}
+
 	return &Response{
-		Status: codes.Unimplemented,
-		Err:    errors.New("TesseraReader.GetConsistencyProof not implemented"),
+		Status: codes.OK,
+		GetConsistencyProofResult: &trillian.GetConsistencyProofResponse{
+			Proof: &trillian.Proof{
+				Hashes: proofHashes,
+			},
+		},
 	}
 }
 
 func (r *TesseraReader) GetLeavesByRange(ctx context.Context, startIndex, count int64) *Response {
+	if startIndex < 0 || count <= 0 {
+		return &Response{
+			Status: codes.InvalidArgument,
+			Err:    fmt.Errorf("invalid startIndex %d or count %d", startIndex, count),
+		}
+	}
+
+	latestResp := r.GetLatest(ctx, 0)
+	if latestResp.Status != codes.OK {
+		return latestResp
+	}
+	var root types.LogRootV1
+	if err := root.UnmarshalBinary(latestResp.GetLatestResult.SignedLogRoot.LogRoot); err != nil {
+		return &Response{
+			Status: codes.Internal,
+			Err:    err,
+		}
+	}
+	treeSize := root.TreeSize
+
+	if uint64(startIndex) >= treeSize {
+		return &Response{
+			Status: codes.NotFound,
+			Err:    fmt.Errorf("startIndex %d out of bounds for tree size %d", startIndex, treeSize),
+		}
+	}
+
+	endIndex := uint64(startIndex + count)
+	if endIndex > treeSize {
+		endIndex = treeSize
+	}
+
+	leaves := []*trillian.LogLeaf{}
+	currIndex := uint64(startIndex)
+
+	for currIndex < endIndex {
+		bundleIndex := currIndex / layout.EntryBundleWidth
+		pBundle := layout.PartialTileSize(0, bundleIndex, treeSize)
+		
+		bundleRaw, err := r.entryBundleFetcher(ctx, bundleIndex, pBundle)
+		if err != nil {
+			return &Response{
+				Status: codes.Internal,
+				Err:    err,
+			}
+		}
+		
+		var bundle api.EntryBundle
+		if err := bundle.UnmarshalText(bundleRaw); err != nil {
+			return &Response{
+				Status: codes.Internal,
+				Err:    err,
+			}
+		}
+		
+		intraBundleIndex := currIndex % layout.EntryBundleWidth
+		
+		for intraBundleIndex < uint64(len(bundle.Entries)) && currIndex < endIndex {
+			leafData := bundle.Entries[intraBundleIndex]
+			leafHash := rfc6962.DefaultHasher.HashLeaf(leafData)
+			
+			leaves = append(leaves, &trillian.LogLeaf{
+				LeafValue:      leafData,
+				LeafIndex:      int64(currIndex),
+				MerkleLeafHash: leafHash,
+			})
+			
+			intraBundleIndex++
+			currIndex++
+		}
+	}
+
 	return &Response{
-		Status: codes.Unimplemented,
-		Err:    errors.New("TesseraReader.GetLeavesByRange not implemented"),
+		Status: codes.OK,
+		GetLeavesByRangeResult: &trillian.GetLeavesByRangeResponse{
+			Leaves: leaves,
+		},
 	}
 }
 
 func (r *TesseraReader) GetLeafWithoutProof(ctx context.Context, index int64) *Response {
-	return &Response{
-		Status: codes.Unimplemented,
-		Err:    errors.New("TesseraReader.GetLeafWithoutProof not implemented"),
-	}
+	return r.GetLeavesByRange(ctx, index, 1)
 }
