@@ -73,10 +73,10 @@ Since the target state is a read-only log, we can perform a static migration fro
 
 ## 4. Proposed Implementation Steps
 
-### Phase 1: Research & Scaffolding
-1.  Define a `LogReader` interface in Rekor that abstracts the read operations currently performed by `TrillianClient`.
-2.  Refactor existing Rekor API handlers to use this interface instead of directly calling `TrillianClient`.
-3.  Create a dummy `TesseraReader` implementation that returns errors to verify the refactoring.
+### Phase 1: Research & Scaffolding (Completed)
+1.  [x] Define a `LogReader` interface in Rekor that abstracts the read operations currently performed by `TrillianClient`.
+2.  [x] Refactor existing Rekor API handlers to use this interface instead of directly calling `TrillianClient`.
+3.  [x] Create a dummy `TesseraReader` implementation that returns errors to verify the refactoring.
 
 ### Phase 2: Tessera Reader Implementation
 1.  Implement the `LogReader` interface using the Tessera client library (`reference/tessera/client`).
