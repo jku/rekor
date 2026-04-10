@@ -43,7 +43,7 @@ func NewTesseraReader(basePath string) *TesseraReader {
 	return &TesseraReader{basePath: basePath}
 }
 
-func (r *TesseraReader) tileFetcher(ctx context.Context, level, index uint64, p uint8) ([]byte, error) {
+func (r *TesseraReader) tileFetcher(_ context.Context, level, index uint64, p uint8) ([]byte, error) {
 	if p > 0 {
 		path := filepath.Join(r.basePath, layout.TilePath(level, index, p))
 		data, err := os.ReadFile(path)
@@ -65,7 +65,7 @@ func (r *TesseraReader) tileFetcher(ctx context.Context, level, index uint64, p 
 	return data, nil
 }
 
-func (r *TesseraReader) entryBundleFetcher(ctx context.Context, bundleIndex uint64, p uint8) ([]byte, error) {
+func (r *TesseraReader) entryBundleFetcher(_ context.Context, bundleIndex uint64, p uint8) ([]byte, error) {
 	if p > 0 {
 		path := filepath.Join(r.basePath, layout.EntriesPath(bundleIndex, p))
 		data, err := os.ReadFile(path)
@@ -87,7 +87,7 @@ func (r *TesseraReader) entryBundleFetcher(ctx context.Context, bundleIndex uint
 	return data, nil
 }
 
-func (r *TesseraReader) GetLeafAndProofByHash(ctx context.Context, hash []byte) *Response {
+func (r *TesseraReader) GetLeafAndProofByHash(_ context.Context, _ []byte) *Response {
 	return &Response{
 		Status: codes.Unimplemented,
 		Err:    errors.New("TesseraReader.GetLeafAndProofByHash not implemented"),
@@ -124,7 +124,7 @@ func (r *TesseraReader) GetLeafAndProofByIndex(ctx context.Context, index int64)
 
 	bundleIndex := uint64(index) / layout.EntryBundleWidth
 	pBundle := layout.PartialTileSize(0, bundleIndex, treeSize)
-	
+
 	bundleRaw, err := r.entryBundleFetcher(ctx, bundleIndex, pBundle)
 	if err != nil {
 		return &Response{
@@ -132,7 +132,7 @@ func (r *TesseraReader) GetLeafAndProofByIndex(ctx context.Context, index int64)
 			Err:    err,
 		}
 	}
-	
+
 	var bundle api.EntryBundle
 	if err := bundle.UnmarshalText(bundleRaw); err != nil {
 		return &Response{
@@ -140,7 +140,7 @@ func (r *TesseraReader) GetLeafAndProofByIndex(ctx context.Context, index int64)
 			Err:    err,
 		}
 	}
-	
+
 	intraBundleIndex := uint64(index) % layout.EntryBundleWidth
 	if intraBundleIndex >= uint64(len(bundle.Entries)) {
 		return &Response{
@@ -158,7 +158,7 @@ func (r *TesseraReader) GetLeafAndProofByIndex(ctx context.Context, index int64)
 			Err:    err,
 		}
 	}
-	
+
 	proof, err := pb.InclusionProof(ctx, uint64(index))
 	if err != nil {
 		return &Response{
@@ -183,7 +183,7 @@ func (r *TesseraReader) GetLeafAndProofByIndex(ctx context.Context, index int64)
 	}
 }
 
-func (r *TesseraReader) GetLatest(ctx context.Context, leafSizeInt int64) *Response {
+func (r *TesseraReader) GetLatest(_ context.Context, _ int64) *Response {
 	cpRaw, err := os.ReadFile(filepath.Join(r.basePath, "checkpoint"))
 	if err != nil {
 		if errors.Is(err, fs.ErrNotExist) {
@@ -311,7 +311,7 @@ func (r *TesseraReader) GetLeavesByRange(ctx context.Context, startIndex, count 
 	for currIndex < endIndex {
 		bundleIndex := currIndex / layout.EntryBundleWidth
 		pBundle := layout.PartialTileSize(0, bundleIndex, treeSize)
-		
+
 		bundleRaw, err := r.entryBundleFetcher(ctx, bundleIndex, pBundle)
 		if err != nil {
 			return &Response{
@@ -319,7 +319,7 @@ func (r *TesseraReader) GetLeavesByRange(ctx context.Context, startIndex, count 
 				Err:    err,
 			}
 		}
-		
+
 		var bundle api.EntryBundle
 		if err := bundle.UnmarshalText(bundleRaw); err != nil {
 			return &Response{
@@ -327,19 +327,19 @@ func (r *TesseraReader) GetLeavesByRange(ctx context.Context, startIndex, count 
 				Err:    err,
 			}
 		}
-		
+
 		intraBundleIndex := currIndex % layout.EntryBundleWidth
-		
+
 		for intraBundleIndex < uint64(len(bundle.Entries)) && currIndex < endIndex {
 			leafData := bundle.Entries[intraBundleIndex]
 			leafHash := rfc6962.DefaultHasher.HashLeaf(leafData)
-			
+
 			leaves = append(leaves, &trillian.LogLeaf{
 				LeafValue:      leafData,
 				LeafIndex:      int64(currIndex),
 				MerkleLeafHash: leafHash,
 			})
-			
+
 			intraBundleIndex++
 			currIndex++
 		}
