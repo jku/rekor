@@ -54,7 +54,6 @@ import (
 	"github.com/sigstore/rekor/pkg/pubsub"
 	"github.com/sigstore/rekor/pkg/sharding"
 	"github.com/sigstore/rekor/pkg/tle"
-	"github.com/sigstore/rekor/pkg/trillianclient"
 	"github.com/sigstore/rekor/pkg/types"
 	hashedrekord "github.com/sigstore/rekor/pkg/types/hashedrekord/v0.0.1"
 	"github.com/sigstore/rekor/pkg/util"
@@ -625,12 +624,10 @@ func SearchLogQueryHandler(params entries.SearchLogQueryParams) middleware.Respo
 		for i, hash := range searchHashes {
 			var results map[int64]*trillian.GetEntryAndProofResponse
 			for _, shard := range api.logRanges.AllShards() {
-				var tc trillianclient.LogReader
-				tClient, err := api.trillianClientManager.GetTrillianClient(shard)
+				tc, err := api.trillianClientManager.GetLogReader(shard)
 				if err != nil {
 					return handleRekorAPIError(params, http.StatusInternalServerError, err, trillianCommunicationError)
 				}
-				tc = tClient
 				resp := tc.GetLeafAndProofByHash(httpReqCtx, hash)
 				switch resp.Status {
 				case codes.OK:
@@ -685,12 +682,10 @@ func retrieveLogEntryByIndex(ctx context.Context, logIndex int) (models.LogEntry
 	log.ContextLogger(ctx).Infof("Retrieving log entry by index %d", logIndex)
 
 	tid, resolvedIndex := api.logRanges.ResolveVirtualIndex(logIndex)
-	var tc trillianclient.LogReader
-	tClient, err := api.trillianClientManager.GetTrillianClient(tid)
+	tc, err := api.trillianClientManager.GetLogReader(tid)
 	if err != nil {
 		return nil, fmt.Errorf("getting log client for tree %d: %w", tid, err)
 	}
-	tc = tClient
 	log.ContextLogger(ctx).Debugf("Retrieving resolved index %v from TreeID %v", resolvedIndex, tid)
 
 	resp := tc.GetLeafAndProofByIndex(ctx, resolvedIndex)
@@ -757,12 +752,10 @@ func retrieveUUIDFromTree(ctx context.Context, uuid string, tid int64) (models.L
 		return models.LogEntry{}, &types.InputValidationError{Err: fmt.Errorf("parsing UUID: %w", err)}
 	}
 
-	var tc trillianclient.LogReader
-	tClient, err := api.trillianClientManager.GetTrillianClient(tid)
+	tc, err := api.trillianClientManager.GetLogReader(tid)
 	if err != nil {
 		return nil, fmt.Errorf("getting log client for tree %d: %w", tid, err)
 	}
-	tc = tClient
 	log.ContextLogger(ctx).Debugf("Attempting to retrieve UUID %v from TreeID %v", uuid, tid)
 
 	resp := tc.GetLeafAndProofByHash(ctx, hashValue)
