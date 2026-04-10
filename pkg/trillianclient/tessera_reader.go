@@ -179,6 +179,7 @@ func (r *TesseraReader) GetLeafAndProofByIndex(ctx context.Context, index int64)
 				LeafIndex: index,
 				Hashes:    proof,
 			},
+			SignedLogRoot: latestResp.GetLatestResult.SignedLogRoot,
 		},
 	}
 }
