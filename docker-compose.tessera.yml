@@ -10,7 +10,7 @@ services:
       "--port=3001",
       "--rekor_server.address=0.0.0.0",
       "--enable_retrieve_api=false",
-      "--enabled_api_endpoints=getLogInfo,getLogEntryByIndex,getLogProof",
+      "--enabled_api_endpoints=getLogInfo,getLogEntryByIndex,getLogProof,getPublicKey",
       "--trillian_log_server.tlog_id=1",
       "--rekor_server.signer=memory"
     ]
