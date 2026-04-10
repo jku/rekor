@@ -17,45 +17,58 @@ package trillianclient
 
 import (
 	"context"
+	"os"
+	"path/filepath"
 	"testing"
 
+	"github.com/google/trillian/types"
 	"google.golang.org/grpc/codes"
 )
 
 func TestTesseraReader_GetLatest(t *testing.T) {
-	reader := NewTesseraReader()
+	tmpDir := t.TempDir()
+	
+	// Write a dummy checkpoint file
+	// Format: origin\nsize\nhash\n
+	checkpointContent := "example.com\n42\nZXhhbXBsZWhhc2g=\n" // ZXhhbXBsZWhhc2g= is base64 for "examplehash"
+	err := os.WriteFile(filepath.Join(tmpDir, "checkpoint"), []byte(checkpointContent), 0644)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	reader := NewTesseraReader(tmpDir)
 	ctx := context.Background()
 
 	resp := reader.GetLatest(ctx, 0)
-	if resp.Status != codes.OK {
-		t.Logf("Current status (expected to fail until implemented): %v", resp.Status)
-	}
-	if resp.Err != nil {
-		t.Logf("Current error (expected to fail until implemented): %v", resp.Err)
-	}
 	
-	// These assertions will fail now, but should pass later.
 	if resp.Status != codes.OK {
 		t.Errorf("Expected status OK, got %v", resp.Status)
 	}
 	if resp.GetLatestResult == nil {
-		t.Error("Expected GetLatestResult to be non-nil")
+		t.Fatal("Expected GetLatestResult to be non-nil")
+	}
+	
+	// Verify content
+	root := &types.LogRootV1{}
+	if err := root.UnmarshalBinary(resp.GetLatestResult.SignedLogRoot.LogRoot); err != nil {
+		t.Fatal(err)
+	}
+	if root.TreeSize != 42 {
+		t.Errorf("Expected tree size 42, got %d", root.TreeSize)
+	}
+	if string(root.RootHash) != "examplehash" {
+		t.Errorf("Expected root hash 'examplehash', got %s", string(root.RootHash))
 	}
 }
 
 func TestTesseraReader_GetLeafAndProofByIndex(t *testing.T) {
-	reader := NewTesseraReader()
+	tmpDir := t.TempDir()
+	reader := NewTesseraReader(tmpDir)
 	ctx := context.Background()
 
 	resp := reader.GetLeafAndProofByIndex(ctx, 0)
-	if resp.Status != codes.OK {
-		t.Logf("Current status (expected to fail until implemented): %v", resp.Status)
-	}
-	if resp.Err != nil {
-		t.Logf("Current error (expected to fail until implemented): %v", resp.Err)
-	}
-
-	// These assertions will fail now, but should pass later.
+	
+	// This assertion will fail now, but should pass later.
 	if resp.Status != codes.OK {
 		t.Errorf("Expected status OK, got %v", resp.Status)
 	}

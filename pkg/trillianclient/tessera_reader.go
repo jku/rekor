@@ -18,18 +18,24 @@ package trillianclient
 import (
 	"context"
 	"errors"
+	"io/fs"
+	"os"
+	"path/filepath"
 
+	"github.com/google/trillian"
+	"github.com/google/trillian/types"
+	"github.com/sigstore/rekor/pkg/util"
 	"google.golang.org/grpc/codes"
 )
 
 // TesseraReader implements LogReader by reading from Tessera tiles.
-// Currently a dummy implementation that returns errors.
 type TesseraReader struct {
+	basePath string
 }
 
-// NewTesseraReader creates a new dummy TesseraReader.
-func NewTesseraReader() *TesseraReader {
-	return &TesseraReader{}
+// NewTesseraReader creates a new TesseraReader reading from the specified path.
+func NewTesseraReader(basePath string) *TesseraReader {
+	return &TesseraReader{basePath: basePath}
 }
 
 func (r *TesseraReader) GetLeafAndProofByHash(ctx context.Context, hash []byte) *Response {
@@ -47,9 +53,46 @@ func (r *TesseraReader) GetLeafAndProofByIndex(ctx context.Context, index int64)
 }
 
 func (r *TesseraReader) GetLatest(ctx context.Context, leafSizeInt int64) *Response {
+	cpRaw, err := os.ReadFile(filepath.Join(r.basePath, "checkpoint"))
+	if err != nil {
+		if errors.Is(err, fs.ErrNotExist) {
+			return &Response{
+				Status: codes.NotFound,
+				Err:    err,
+			}
+		}
+		return &Response{
+			Status: codes.Internal,
+			Err:    err,
+		}
+	}
+	var cp util.Checkpoint
+	if err := cp.UnmarshalCheckpoint(cpRaw); err != nil {
+		return &Response{
+			Status: codes.Internal,
+			Err:    err,
+		}
+	}
+
+	root := types.LogRootV1{
+		TreeSize: cp.Size,
+		RootHash: cp.Hash,
+	}
+	rootBytes, err := root.MarshalBinary()
+	if err != nil {
+		return &Response{
+			Status: codes.Internal,
+			Err:    err,
+		}
+	}
+
 	return &Response{
-		Status: codes.Unimplemented,
-		Err:    errors.New("TesseraReader.GetLatest not implemented"),
+		Status: codes.OK,
+		GetLatestResult: &trillian.GetLatestSignedLogRootResponse{
+			SignedLogRoot: &trillian.SignedLogRoot{
+				LogRoot: rootBytes,
+			},
+		},
 	}
 }
 
