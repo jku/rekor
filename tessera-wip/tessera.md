@@ -96,14 +96,14 @@ Since the target state is a read-only log, we can perform a static migration fro
 3.  [x] Add configuration options to Rekor to select the Tessera backend and specify the storage path.
 
 ### Phase 3: Migration Tooling
-1.  **Develop Migration Tool**: Create a Go CLI tool (e.g., `cmd/tessera-migrate`) that:
+1.  [x] **Develop Migration Tool**: Create a Go CLI tool (e.g., `cmd/tessera-migrate`) that:
     *   Connects to the source Trillian log via gRPC.
     *   Reads entries in batches using `GetLeavesByRange`.
-    *   Processes entries into Tessera entry bundles (mapping to tiles).
-    *   Computes the Merkle tree hashes and writes Hash Tiles using Tessera libraries.
-    *   Generates the final `checkpoint` file.
+    *   Utilizes `tessera.NewAppender` to automatically process entries, compute Merkle tree hashes, and write Hash Tiles and entry bundles in the Tessera layout.
+    *   Generates the final `checkpoint` file via the appender's lifecycle.
 2.  **Support Resumability**: Ensure the tool can resume from a saved index to handle large logs without restarting.
 3.  **Verification**: Implement a mode that compares the generated Tessera root hash with the Trillian root hash for the same tree size.
+4.  **Real Signer Integration**: Replace the `dummySigner` in `cmd/tessera-migrate` with a production-ready `tessera.CheckpointSigner` (e.g., backed by Google Cloud KMS or a file-based key) to generate valid signatures for the migrated log checkpoints.
 
 ### Phase 4: GCP backend
 
