@@ -36,6 +36,7 @@ ${docker_compose} up -d --build
 echo "building CLI and server"
 go test -c ./cmd/rekor-cli -o rekor-cli -cover -covermode=count -coverpkg=./...
 go test -c ./cmd/rekor-server -o rekor-server -covermode=count -coverpkg=./...
+go build -o tessera-migrate ./cmd/tessera-migrate
 
 count=0
 
