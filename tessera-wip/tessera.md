@@ -146,6 +146,12 @@ To ensure correctness and maintain API compatibility without changes, we will em
 ### Migration Verification
 *   Verify that the root hash computed by Tessera after migration matches the root hash in Trillian for the same tree size.
 
+### Testing Implementation state
+*   [x] **Migration Test**: Implemented `tests/tessera_migrate_test.go` (with `//go:build e2e`) which builds `tessera-migrate` and runs it against a live Trillian instance, verifying file generation.
+*   [x] **Basic Rekor-with-tessera testing**: `tests/tessera/e2e-tessera.sh`
+*   [ ] **Automated Differential Test**: A script to run a migration and then compare the tessera-rekor and trillian-rekor API output: they should return identical content (apart from maybe the signing key because of the dynamic in-memory key)
+
+
 ## 7. Decisions Made
 *   **Storage Backend**: We will target **POSIX** first for local testing and initial implementation, but we will need to support **GCS** as well for production readiness (especially for scale).
 *   **Key Management**: We will keep using the **same key** as the existing Rekor log for signing the checkpoint in the migrated Tessera log, to avoid breaking trust for existing clients.
@@ -157,3 +163,12 @@ The current implementation of the Tessera backend in Rekor assumes that the enti
 
 ### Future Extension: Hybrid Backend for Sharded Logs
 While the current implementation applies the Tessera backend globally, it could be extended to support a hybrid model. In this model frozen shards of the log could be served from a cost-effective Tessera tile storage and active shard (writable) would continue to be served by Trillian to support high-throughput writes.
+
+## 9. Known Issues & Limitations
+
+### Integrated Time Preservation
+During migration from Trillian to Tessera, the original `integratedTime` (the timestamp of when the entry was added to the log) is currently not preserved.
+*   **Cause**: Tessera's `Appender` automatically assigns the current time to new entries and does not support passing a historical timestamp during backfill.
+*   **Impact**: Migrated entries will have incorrect timestamps (either 0 or the time of migration).
+*   **Workaround for Testing**: The differential test script ignores this field when comparing API responses.
+*   **Required Fix**: Tessera library needs to be updated to support setting historical timestamps during migration before this tool can be used for production data.
