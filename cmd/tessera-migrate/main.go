@@ -5,6 +5,7 @@ import (
 	"flag"
 	"fmt"
 	"log"
+	"time"
 
 	"github.com/google/trillian"
 	"github.com/google/trillian/types"
@@ -39,26 +40,11 @@ func main() {
 	if err != nil {
 		log.Fatalf("Failed to connect to Trillian: %v", err)
 	}
+	defer conn.Close()
 
 	client := trillian.NewTrillianLogClient(conn)
 
 	ctx := context.Background()
-
-	// Get latest signed log root to know the tree size
-	resp, err := client.GetLatestSignedLogRoot(ctx, &trillian.GetLatestSignedLogRootRequest{
-		LogId: *treeID,
-	})
-	if err != nil {
-		log.Fatalf("Failed to get latest signed log root: %v", err)
-	}
-
-	var root types.LogRootV1
-	if err := root.UnmarshalBinary(resp.SignedLogRoot.LogRoot); err != nil {
-		log.Fatalf("Failed to unmarshal log root: %v", err)
-	}
-
-	treeSize := int64(root.TreeSize)
-	fmt.Printf("Source tree size: %d\n", treeSize)
 
 	// Initialize Tessera Appender
 	driver, err := posix.New(ctx, posix.Config{Path: *tesseraDir})
@@ -73,41 +59,68 @@ func main() {
 		log.Fatalf("Failed to create Tessera appender: %v", err)
 	}
 
+	if err := runMigration(ctx, client, *treeID, appender, *batchSize); err != nil {
+		log.Fatalf("Migration failed: %v", err)
+	}
+
+	fmt.Println("All entries added to Tessera appender. Shutting down to flush...")
+	startShutdown := time.Now()
+	if err := shutdown(ctx); err != nil {
+		log.Fatalf("Failed to shutdown appender: %v", err)
+	}
+	fmt.Printf("Shutdown and flushed in %v\n", time.Since(startShutdown))
+}
+
+func runMigration(ctx context.Context, client trillian.TrillianLogClient, treeID int64, appender *tessera.Appender, batchSize int) error {
+	// Get latest signed log root to know the tree size
+	resp, err := client.GetLatestSignedLogRoot(ctx, &trillian.GetLatestSignedLogRootRequest{
+		LogId: treeID,
+	})
+	if err != nil {
+		return fmt.Errorf("failed to get latest signed log root: %w", err)
+	}
+
+	var root types.LogRootV1
+	if err := root.UnmarshalBinary(resp.SignedLogRoot.LogRoot); err != nil {
+		return fmt.Errorf("failed to unmarshal log root: %w", err)
+	}
+
+	treeSize := int64(root.TreeSize)
+	fmt.Printf("Source tree size: %d\n", treeSize)
+
 	// Fetch leaves in batches and add to Tessera
-	for start := int64(0); start < treeSize; start += int64(*batchSize) {
-		count := int64(*batchSize)
+	for start := int64(0); start < treeSize; start += int64(batchSize) {
+		count := int64(batchSize)
 		if start+count > treeSize {
 			count = treeSize - start
 		}
 
 		fmt.Printf("Fetching leaves %d to %d...\n", start, start+count-1)
 		req := &trillian.GetLeavesByRangeRequest{
-			LogId:      *treeID,
+			LogId:      treeID,
 			StartIndex: start,
 			Count:      count,
 		}
 
+		startFetch := time.Now()
 		resp, err := client.GetLeavesByRange(ctx, req)
 		if err != nil {
-			log.Fatalf("Failed to fetch leaves: %v", err)
+			return fmt.Errorf("failed to fetch leaves: %w", err)
+		}
+		fmt.Printf("Fetched %d leaves in %v, adding to Tessera...\n", len(resp.Leaves), time.Since(startFetch))
+
+		startAdd := time.Now()
+		rets := make([]tessera.IndexFuture, 0, len(resp.Leaves))
+		for _, leaf := range resp.Leaves {
+			rets = append(rets, appender.Add(ctx, tessera.NewEntry(leaf.LeafValue)))
 		}
 
-		fmt.Printf("Fetched %d leaves, adding to Tessera...\n", len(resp.Leaves))
-
-		for _, leaf := range resp.Leaves {
-			ret := appender.Add(ctx, tessera.NewEntry(leaf.LeafValue))
-			// Wait for the entry to be sequenced to ensure it's written.
-			// This makes the migration synchronous per entry within the batch,
-			// which is fine for now.
+		for _, ret := range rets {
 			if _, err := ret(); err != nil {
-				log.Fatalf("Failed to add entry to Tessera: %v", err)
+				return fmt.Errorf("failed to add entry to Tessera: %w", err)
 			}
 		}
+		fmt.Printf("Added %d leaves to Tessera in %v\n", len(resp.Leaves), time.Since(startAdd))
 	}
-
-	fmt.Println("All entries added to Tessera appender. Shutting down to flush...")
-	if err := shutdown(ctx); err != nil {
-		log.Fatalf("Failed to shutdown appender: %v", err)
-	}
-	conn.Close()
+	return nil
 }
