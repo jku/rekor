@@ -156,32 +156,36 @@ To ensure correctness and maintain API compatibility without changes, we will em
 *   [x] **Automated Differential Test**: A script to run a migration and then compare the tessera-rekor and trillian-rekor API output: they should return identical content (apart from maybe the signing key because of the dynamic in-memory key)
 
 
-## 7. Decisions Made
-*   **Storage Backend**: We will target **POSIX** first for local testing and initial implementation, but we will need to support **GCS** as well for production readiness (especially for scale).
-*   **Key Management**: We will keep using the **same key** as the existing Rekor log for signing the checkpoint in the migrated Tessera log, to avoid breaking trust for existing clients. Tessera checkpoint signing requires some hacks currently as
-the rekor keys are not compatible.
+## 7. Known Issues & Limitations
 
-## 8. Architectural Notes
+### Read-Only
 
-### Read-Only Assumption
-The current implementation of the Tessera backend in Rekor assumes that the entire log is read-only. It does not support appending new entries (write path). This is suitable for migrating historical data or serving a frozen log.
+Current implementation assumes that the entire log is read-only. It does not support appending new entries.
 
-### Future Extension: Hybrid Backend for Sharded Logs
-While the current implementation applies the Tessera backend globally, it could be extended to support a hybrid model. In this model frozen shards of the log could be served from a cost-effective Tessera tile storage and active shard (writable) would continue to be served by Trillian to support high-throughput writes.
+### tessera backend only supports POSIX tile storage 
 
-## 9. Known Issues & Limitations
+### trillian-only or tessera-only
 
-### Tessera API performance
+Current implementation expects all shards to be served from trillian or tessera.
+It should be possible to serve a live shard from trillian and others from tessera.
+
+
+### Tessera API performance during migration
 
 Very likely we should not use Appender.Add() just for performance reasons -- e.g. checkpoint signing is a waste during migration. We could just create the tiles
 manually.
 
-### Integrated Time Preservation
-During migration from Trillian to Tessera, the original `integratedTime` (the timestamp of when the entry was added to the log) is currently not preserved.
-*   **Cause**: Tessera's `Appender` automatically assigns the current time to new entries and does not support passing a historical timestamp during backfill.
-*   **Impact**: Migrated entries will have incorrect integratedTime, leading to incorrect signedEntryTimestamps
-*   **Workaround for Testing**: The differential test script ignores this field when comparing API responses.
+### Integrated Time
+
+Original `integratedTime` is currently not preserved: Tessera's `Appender` automatically assigns the current time to new entries and does not support passing a historical timestamp during backfill.
 
 ### Checkpoint Signing
 
 The basic Appender.Add() checkpoint signer  is not compatible (requires ed22519 and an origin name without spaces). The migration tool currently hacks around this.
+
+### Unsupported Endpoints 
+
+#### `entries/retrieve`
+
+The `/api/v1/log/entries/retrieve` endpoint is not supported by the Tessera backend.
+Implementing support would require a sidecar database.
