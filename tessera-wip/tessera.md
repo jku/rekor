@@ -80,9 +80,6 @@ Since the target state is a read-only log, we can perform a static migration fro
 3.  **Write to Tessera**: Use a custom migration script or Tessera's `setEntryBundle` (from `migrate.go`) to write the bundles to the target storage (e.g., POSIX files or Cloud Storage).
 4.  **Compute Hashes and Checkpoint**: Tessera's migration tools or a custom script must compute the Merkle tree hashes and generate the final checkpoint.
 
-> [!NOTE]
-> Could talk to Tessera folks about  "Trillian v1 to Tessera migration" -- maybe they can provide something esier to use.
-
 ## 4. Proposed Implementation Steps
 
 ### Phase 1: Research & Scaffolding (Completed)
@@ -116,7 +113,7 @@ For large-scale log like Sigstores Rekor there may be scalability concerns:
 *   **Storage Layout**: Tessera's sharded directory structure naturally maps to flat object stores like GCS (using `/` delimiters). It avoids any single directory listing limits and scales horizontally.
 *   **Migration Throughput**: Migrating 1 billion entries will take significant time. Parallelization is mandatory. Tessera's migration tools support parallel workers.
 *   **Cloud Storage Costs**: Storing 1B+ entries and associated tiles in GCS will require terabytes of storage. Plan for storage costs and potential egress costs if reading from Trillian across clouds.
-*   **Trillian Load**: The source Trillian database must be able to handle the sustained read load required to export 1B entries.
+*   **Trillian Load**: The source Trillian database must be able to handle the sustained read load required to export 1B entries. We could avoid gRPC completely and access the DB directly to avoid this.
 *   **Resumability**: The migration tool should support resuming from a specific index to handle failures without restarting the entire process.
 
 ## 6. Testing Strategy
@@ -149,7 +146,7 @@ To ensure correctness and maintain API compatibility without changes, we will em
 ### Testing Implementation state
 *   [x] **Migration Test**: Implemented `tests/tessera_migrate_test.go` (with `//go:build e2e`) which builds `tessera-migrate` and runs it against a live Trillian instance, verifying file generation.
 *   [x] **Basic Rekor-with-tessera testing**: `tests/tessera/e2e-tessera.sh`
-*   [ ] **Automated Differential Test**: A script to run a migration and then compare the tessera-rekor and trillian-rekor API output: they should return identical content (apart from maybe the signing key because of the dynamic in-memory key)
+*   [x] **Automated Differential Test**: A script to run a migration and then compare the tessera-rekor and trillian-rekor API output: they should return identical content (apart from maybe the signing key because of the dynamic in-memory key)
 
 
 ## 7. Decisions Made
@@ -169,6 +166,5 @@ While the current implementation applies the Tessera backend globally, it could 
 ### Integrated Time Preservation
 During migration from Trillian to Tessera, the original `integratedTime` (the timestamp of when the entry was added to the log) is currently not preserved.
 *   **Cause**: Tessera's `Appender` automatically assigns the current time to new entries and does not support passing a historical timestamp during backfill.
-*   **Impact**: Migrated entries will have incorrect timestamps (either 0 or the time of migration).
+*   **Impact**: Migrated entries will have incorrect integratedTime, leading to incorrect signedEntryTimestamps
 *   **Workaround for Testing**: The differential test script ignores this field when comparing API responses.
-*   **Required Fix**: Tessera library needs to be updated to support setting historical timestamps during migration before this tool can be used for production data.

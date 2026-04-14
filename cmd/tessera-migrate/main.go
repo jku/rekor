@@ -15,9 +15,11 @@ import (
 	"google.golang.org/grpc/credentials/insecure"
 )
 
-type dummySigner struct{}
+type dummySigner struct {
+	name string
+}
 
-func (d *dummySigner) Name() string                  { return "dummy" }
+func (d *dummySigner) Name() string                  { return d.name }
 func (d *dummySigner) KeyHash() uint32               { return 0 }
 func (d *dummySigner) Sign(_ []byte) ([]byte, error) { return []byte("signature"), nil }
 
@@ -26,6 +28,7 @@ func main() {
 	treeID := flag.Int64("tree-id", 1, "Trillian tree ID")
 	tesseraDir := flag.String("tessera-dir", "", "Output directory for Tessera tiles")
 	batchSize := flag.Int("batch-size", 1000, "Batch size for fetching leaves")
+	origin := flag.String("origin", "dummy", "Origin name for the checkpoint")
 
 	flag.Parse()
 
@@ -52,7 +55,7 @@ func main() {
 		log.Fatalf("Failed to create Tessera POSIX driver: %v", err)
 	}
 
-	opts := tessera.NewAppendOptions().WithCheckpointSigner(&dummySigner{})
+	opts := tessera.NewAppendOptions().WithCheckpointSigner(&dummySigner{name: *origin})
 
 	appender, shutdown, _, err := tessera.NewAppender(ctx, driver, opts)
 	if err != nil {

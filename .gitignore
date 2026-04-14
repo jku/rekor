@@ -7,6 +7,7 @@ rekor-cli
 !rekor-cli/
 rekor-server
 !rekor-server/
+tessera-migrate
 /tests/rekor-server
 /server
 swagger

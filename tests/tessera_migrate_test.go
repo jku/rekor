@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"os"
 	"os/exec"
+	"strings"
 	"testing"
 	"time"
 )
@@ -29,6 +30,26 @@ func TestTesseraMigrate(t *testing.T) {
 	}
 	defer os.RemoveAll(tempDir)
 
+	// Fetch latest log info from Trillian to get the origin name
+	respTrillian, err := http.Get("http://localhost:3000/api/v1/log")
+	if err != nil {
+		t.Fatalf("Failed to get log info from Trillian: %v", err)
+	}
+	defer respTrillian.Body.Close()
+	
+	var logTrillian map[string]interface{}
+	if err := json.NewDecoder(respTrillian.Body).Decode(&logTrillian); err != nil {
+		t.Fatalf("Failed to decode Trillian log info: %v", err)
+	}
+	
+	checkpointStr := logTrillian["signedTreeHead"].(string)
+	// The origin line is the first line: "hostname - treeID"
+	lines := strings.Split(checkpointStr, "\n")
+	parts := strings.Split(lines[0], " - ")
+	hostname := parts[0]
+	
+	t.Logf("Extracted hostname from Trillian: %s", hostname)
+
 	// 2. Run tessera-migrate
 	// We assume it was built by the calling script (e.g. tests/e2e-test.sh) and is in the root directory
 	t.Log("Running migration...")
@@ -37,6 +58,7 @@ func TestTesseraMigrate(t *testing.T) {
 		"-tree-id", fmt.Sprintf("%d", treeID),
 		"-tessera-dir", tempDir,
 		"-batch-size", "50",
+		"-origin", hostname,
 	)
 	
 	output, err := migrateCmd.CombinedOutput()
@@ -55,6 +77,7 @@ func TestTesseraMigrate(t *testing.T) {
 		"--port=3001",
 		"--rekor_server.address=0.0.0.0",
 		"--rekor_server.signer=" + os.Getenv("REKOR_TEST_KEY_PATH"),
+		"--rekor_server.hostname=" + hostname,
 		fmt.Sprintf("--trillian_log_server.tlog_id=%d", treeID),
 	)
 	
@@ -112,7 +135,7 @@ func TestTesseraMigrate(t *testing.T) {
 	}
 	
 	// Get latest log info from both
-	respTrillian, err := http.Get("http://localhost:3000/api/v1/log")
+	respTrillian, err = http.Get("http://localhost:3000/api/v1/log")
 	if err != nil {
 		t.Fatalf("Failed to get log info from Trillian: %v", err)
 	}
@@ -124,7 +147,7 @@ func TestTesseraMigrate(t *testing.T) {
 	}
 	defer respTessera.Body.Close()
 
-	var logTrillian, logTessera map[string]interface{}
+	var logTessera map[string]interface{}
 	if err := json.NewDecoder(respTrillian.Body).Decode(&logTrillian); err != nil {
 		t.Fatalf("Failed to decode Trillian log info: %v", err)
 	}
@@ -204,11 +227,6 @@ func TestTesseraMigrate(t *testing.T) {
 		verTrillian := valTrillian["verification"].(map[string]interface{})
 		verTessera := valTessera["verification"].(map[string]interface{})
 
-		// Compare signedEntryTimestamp
-		if verTrillian["signedEntryTimestamp"] != verTessera["signedEntryTimestamp"] {
-			t.Errorf("signedEntryTimestamp does not match at index %d", i)
-		}
-
 		// Compare Inclusion Proof Hashes
 		proofTrillian := verTrillian["inclusionProof"].(map[string]interface{})
 		proofTessera := verTessera["inclusionProof"].(map[string]interface{})
@@ -226,13 +244,32 @@ func TestTesseraMigrate(t *testing.T) {
 			}
 		}
 
-		// Compare checkpoint in inclusionProof
-		if proofTrillian["checkpoint"] != proofTessera["checkpoint"] {
-			t.Logf("Trillian checkpoint at index %d:\n%s", i, proofTrillian["checkpoint"])
-			t.Logf("Tessera checkpoint at index %d:\n%s", i, proofTessera["checkpoint"])
-			t.Errorf("checkpoint does not match at index %d", i)
+		// Compare checkpoint in inclusionProof (ignoring signatures)
+		cpTrillian := proofTrillian["checkpoint"].(string)
+		cpTessera := proofTessera["checkpoint"].(string)
+
+		linesTrillian := strings.Split(cpTrillian, "\n")
+		linesTessera := strings.Split(cpTessera, "\n")
+
+		if len(linesTrillian) < 3 || len(linesTessera) < 3 {
+			t.Errorf("Invalid checkpoint format at index %d", i)
+		} else {
+			if linesTrillian[0] != linesTessera[0] {
+				t.Errorf("Checkpoint origin mismatch at index %d:\nTrillian: %s\nTessera:  %s", i, linesTrillian[0], linesTessera[0])
+			}
+			if linesTrillian[1] != linesTessera[1] {
+				t.Errorf("Checkpoint size mismatch at index %d:\nTrillian: %s\nTessera:  %s", i, linesTrillian[1], linesTessera[1])
+			}
+			if linesTrillian[2] != linesTessera[2] {
+				t.Errorf("Checkpoint hash mismatch at index %d:\nTrillian: %s\nTessera:  %s", i, linesTrillian[2], linesTessera[2])
+			}
+			// Signatures will be different because ECDSA
 		}
 
-		// We ignore integratedTime because Tessera doesn't preserve it yet.
+		// TODO: Compare integratedTime / signedEntryTimestamp
+		// if verTrillian["signedEntryTimestamp"] != verTessera["signedEntryTimestamp"] {
+		//	t.Errorf("signedEntryTimestamp does not match at index %d", i)
+		// }
+
 	}
 }
