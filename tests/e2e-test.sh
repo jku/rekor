@@ -30,6 +30,14 @@ make gocovmerge
 echo "building test-only containers"
 docker build -t gcp-pubsub-emulator -f Dockerfile.pubsub-emulator .
 
+# Create temp dir for tests and keys
+REKORTMPDIR="$(mktemp -d -t rekor_test.XXXXXX)"
+trap "rm -rf $REKORTMPDIR" EXIT
+
+echo "generating test key"
+openssl ecparam -name prime256v1 -genkey -noout -out $REKORTMPDIR/test_private_key.pem
+export REKOR_TEST_KEY_PATH="$REKORTMPDIR/test_private_key.pem"
+
 echo "starting services"
 ${docker_compose} up -d --build
 
@@ -57,14 +65,12 @@ done
 
 echo
 echo "running tests"
-REKORTMPDIR="$(mktemp -d -t rekor_test.XXXXXX)"
 touch $REKORTMPDIR.rekor.yaml
-trap "rm -rf $REKORTMPDIR" EXIT
 if ! REKORTMPDIR=$REKORTMPDIR go test -tags=e2e ./tests/ -run TestIssue1308; then
    ${docker_compose} logs --no-color > /tmp/docker-compose.log
    exit 1
 fi
-if ! REKORTMPDIR=$REKORTMPDIR PUBSUB_EMULATOR_HOST=localhost:8085 go test -tags=e2e ./tests/; then 
+if ! REKORTMPDIR=$REKORTMPDIR PUBSUB_EMULATOR_HOST=localhost:8085 go test -v -tags=e2e ./tests/; then 
    ${docker_compose} logs --no-color > /tmp/docker-compose.log
    exit 1
 fi

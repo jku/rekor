@@ -18,6 +18,8 @@ services:
     build:
       context: .
       target: "test"
+    volumes:
+      - ${REKOR_TEST_KEY_PATH}:/etc/rekor/private_key.pem
     environment:
       TMPDIR: /var/run/attestations # workaround for https://github.com/google/go-cloud/issues/3294
       PUBSUB_EMULATOR_HOST: gcp-pubsub-emulator:8085
@@ -32,7 +34,7 @@ services:
       "--redis_server.port=6379",
       "--redis_server.password=test",
       "--rekor_server.address=0.0.0.0",
-      "--rekor_server.signer=memory",
+      "--rekor_server.signer=/etc/rekor/private_key.pem",
       "--enable_attestation_storage",
       "--attestation_storage_bucket=file:///var/run/attestations",
       "--max_request_body_size=32792576",
