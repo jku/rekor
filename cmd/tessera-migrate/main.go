@@ -13,6 +13,7 @@ import (
 	"log"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/google/trillian"
@@ -162,8 +163,12 @@ func run(trillianAddr string, treeID int64, tesseraDir string, batchSize int, or
 	// Clear ephemeral signatures
 	sn.Signatures = nil
 
-	// Sign with the real key and original origin
-	_, err = sn.Sign(origin, sig, options.WithContext(ctx))
+	// Sign with the real key and original origin (using only the hostname part as identity to match Trillian)
+	identity := origin
+	if parts := strings.Split(origin, " - "); len(parts) > 0 {
+		identity = parts[0]
+	}
+	_, err = sn.Sign(identity, sig, options.WithContext(ctx))
 	if err != nil {
 		return fmt.Errorf("failed to sign checkpoint: %w", err)
 	}

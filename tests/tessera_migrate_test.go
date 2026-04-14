@@ -12,6 +12,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/sigstore/rekor/pkg/util"
 )
 
 func TestTesseraMigrate(t *testing.T) {
@@ -265,7 +267,25 @@ func TestTesseraMigrate(t *testing.T) {
 			if linesTrillian[2] != linesTessera[2] {
 				t.Errorf("Checkpoint hash mismatch at index %d:\nTrillian: %s\nTessera:  %s", i, linesTrillian[2], linesTessera[2])
 			}
-			// Signatures will be different because ECDSA
+			
+			// Compare signer names (signatures themselves may differ due to non-deterministic signing)
+			var snTrillian, snTessera util.SignedNote
+			if err := snTrillian.UnmarshalText([]byte(cpTrillian)); err != nil {
+				t.Errorf("Failed to parse Trillian checkpoint at index %d: %v", i, err)
+			}
+			if err := snTessera.UnmarshalText([]byte(cpTessera)); err != nil {
+				t.Errorf("Failed to parse Tessera checkpoint at index %d: %v", i, err)
+			}
+			
+			if len(snTrillian.Signatures) != len(snTessera.Signatures) {
+				t.Errorf("Signature count mismatch at index %d: Trillian=%d, Tessera=%d", i, len(snTrillian.Signatures), len(snTessera.Signatures))
+			} else {
+				for j := range snTrillian.Signatures {
+					if snTrillian.Signatures[j].Name != snTessera.Signatures[j].Name {
+						t.Errorf("Signer name mismatch at index %d: Trillian=%s, Tessera=%s", i, snTrillian.Signatures[j].Name, snTessera.Signatures[j].Name)
+					}
+				}
+			}
 		}
 
 		// TODO: Compare integratedTime / signedEntryTimestamp
@@ -273,5 +293,26 @@ func TestTesseraMigrate(t *testing.T) {
 		//	t.Errorf("signedEntryTimestamp does not match at index %d", i)
 		// }
 
+	}
+
+	// 5. Verify signature using rekor-cli against Tessera server
+	t.Log("Verifying signature using rekor-cli against Tessera server...")
+	// We use 'get --log-index 0' instead of 'verify' because 'verify' tries to use
+	// the /entries/retrieve (SearchLogQuery) endpoint which Tessera does not support.
+	// 'get' will still perform signature verification of the checkpoint.
+	verifyCmd := exec.Command("../rekor-cli", "get",
+		"--rekor_server", "http://localhost:3001",
+		"--log-index", "0",
+	)
+
+	if os.Getenv("REKORTMPDIR") != "" {
+		verifyCmd.Args = append(verifyCmd.Args, "--config="+os.Getenv("REKORTMPDIR")+".rekor.yaml")
+	}
+
+	verifyOutput, err := verifyCmd.CombinedOutput()
+	if err != nil {
+		t.Errorf("rekor-cli get failed on Tessera server: %v\nOutput: %s", err, string(verifyOutput))
+	} else {
+		t.Logf("rekor-cli get succeeded:\n%s", string(verifyOutput))
 	}
 }
