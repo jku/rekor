@@ -26,12 +26,10 @@ import (
 	"github.com/go-openapi/runtime/middleware"
 	"github.com/go-openapi/swag/conv"
 	"github.com/google/trillian/types"
-	"github.com/spf13/viper"
 	"google.golang.org/grpc/codes"
 
 	"github.com/sigstore/rekor/pkg/generated/models"
 	"github.com/sigstore/rekor/pkg/generated/restapi/operations/tlog"
-	"github.com/sigstore/rekor/pkg/util"
 )
 
 // GetLogInfoHandler returns the current size of the tree and the STH
@@ -57,21 +55,18 @@ func GetLogInfoHandler(params tlog.GetLogInfoParams) middleware.Responder {
 	if resp.Status != codes.OK {
 		return handleRekorAPIError(params, http.StatusInternalServerError, fmt.Errorf("grpc error: %w", resp.Err), trillianCommunicationError)
 	}
-	result := resp.GetLatestResult
+	scBytes, err := tc.GetCheckpoint(ctx, api.logRanges.GetActive().Signer, resp.GetLatestResult.SignedLogRoot)
+	if err != nil {
+		return handleRekorAPIError(params, http.StatusInternalServerError, err, sthGenerateError)
+	}
 
 	root := &types.LogRootV1{}
-	if err := root.UnmarshalBinary(result.SignedLogRoot.LogRoot); err != nil {
+	if err := root.UnmarshalBinary(resp.GetLatestResult.SignedLogRoot.LogRoot); err != nil {
 		return handleRekorAPIError(params, http.StatusInternalServerError, err, trillianUnexpectedResult)
 	}
 
 	hashString := hex.EncodeToString(root.RootHash)
 	treeSize := int64(root.TreeSize) //nolint:gosec
-
-	scBytes, err := util.CreateAndSignCheckpoint(ctx,
-		viper.GetString("rekor_server.hostname"), api.logRanges.GetActive().TreeID, root.TreeSize, root.RootHash, api.logRanges.GetActive().Signer)
-	if err != nil {
-		return handleRekorAPIError(params, http.StatusInternalServerError, err, sthGenerateError)
-	}
 
 	logInfo := models.LogInfo{
 		RootHash:       &hashString,

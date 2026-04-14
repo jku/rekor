@@ -26,6 +26,7 @@ import (
 	"github.com/google/trillian"
 	"github.com/google/trillian/types"
 	"github.com/sigstore/rekor/pkg/util"
+	"github.com/sigstore/sigstore/pkg/signature"
 	"github.com/transparency-dev/merkle/rfc6962"
 	"github.com/transparency-dev/tessera/api"
 	"github.com/transparency-dev/tessera/api/layout"
@@ -356,4 +357,8 @@ func (r *TesseraReader) GetLeavesByRange(ctx context.Context, startIndex, count 
 
 func (r *TesseraReader) GetLeafWithoutProof(ctx context.Context, index int64) *Response {
 	return r.GetLeavesByRange(ctx, index, 1)
+}
+
+func (r *TesseraReader) GetCheckpoint(_ context.Context, _ signature.Signer, _ *trillian.SignedLogRoot) ([]byte, error) {
+	return os.ReadFile(filepath.Join(r.basePath, "checkpoint"))
 }

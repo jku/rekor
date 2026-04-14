@@ -15,7 +15,12 @@
 
 package trillianclient
 
-import "context"
+import (
+	"context"
+
+	"github.com/google/trillian"
+	"github.com/sigstore/sigstore/pkg/signature"
+)
 
 // LogReader abstracts the read operations performed by TrillianClient.
 type LogReader interface {
@@ -25,4 +30,5 @@ type LogReader interface {
 	GetConsistencyProof(ctx context.Context, firstSize, lastSize int64) *Response
 	GetLeavesByRange(ctx context.Context, startIndex, count int64) *Response
 	GetLeafWithoutProof(ctx context.Context, index int64) *Response
+	GetCheckpoint(ctx context.Context, signer signature.Signer, signedLogRoot *trillian.SignedLogRoot) ([]byte, error)
 }

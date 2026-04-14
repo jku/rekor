@@ -31,6 +31,9 @@ import (
 	"github.com/google/trillian"
 	"github.com/google/trillian/client"
 	"github.com/google/trillian/types"
+	"github.com/sigstore/rekor/pkg/util"
+	"github.com/sigstore/sigstore/pkg/signature"
+	"github.com/spf13/viper"
 )
 
 // TrillianClient provides a wrapper around the Trillian client
@@ -279,6 +282,24 @@ func (t *TrillianClient) GetLatest(ctx context.Context, leafSizeInt int64) *Resp
 		Err:             err,
 		GetLatestResult: resp,
 	}
+}
+
+func (t *TrillianClient) GetCheckpoint(ctx context.Context, signer signature.Signer, signedLogRoot *trillian.SignedLogRoot) ([]byte, error) {
+	if signedLogRoot == nil {
+		resp := t.GetLatest(ctx, 0)
+		if resp.Status != codes.OK {
+			return nil, fmt.Errorf("grpc error: %w", resp.Err)
+		}
+		signedLogRoot = resp.GetLatestResult.SignedLogRoot
+	}
+
+	root := &types.LogRootV1{}
+	if err := root.UnmarshalBinary(signedLogRoot.LogRoot); err != nil {
+		return nil, err
+	}
+
+	return util.CreateAndSignCheckpoint(ctx,
+		viper.GetString("rekor_server.hostname"), t.logID, root.TreeSize, root.RootHash, signer)
 }
 
 func (t *TrillianClient) GetConsistencyProof(ctx context.Context, firstSize, lastSize int64) *Response {

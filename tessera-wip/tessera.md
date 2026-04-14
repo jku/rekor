@@ -22,10 +22,13 @@ The following methods from `pkg/trillianclient/trillian_client.go` are needed fo
 | `GetLeavesByRange(ctx, start, count)` | Fetch a range of leaves without proofs | `client.GetEntryBundle` (iterating over tiles if needed) |
 | `GetLeafWithoutProof(ctx, index)` | Fetch a single leaf by index | `client.GetEntryBundle` |
 
+### Checkpoint Serving
+
+Unlike the Trillian backend, which generates signed checkpoints on-the-fly for API requests, the Tessera backend reads and serves a pre-signed `checkpoint` file directly from storage. This eliminates runtime signature generation overhead on the Rekor server.
 
 ### Lookup by Hash
 
-Tessera does not natively support lookup by hash. For the initial read-only migration, `GetLeafAndProofByHash` is left unimplemented. Production deployments requiring lookup by hash will need a sidecar index (e.g., a database mapping entry hash to log index).
+Tessera does not natively support lookup by hash. For the initial read-only migration, `GetLeafAndProofByHash` is left unimplemented. Production deployments requiring lookup by hash will need a sidecar index.
 
 ### Response Translation
 
@@ -112,8 +115,12 @@ For large-scale log like Sigstores Rekor there may be scalability concerns:
 
 *   **Storage Layout**: Tessera's sharded directory structure naturally maps to flat object stores like GCS (using `/` delimiters). It avoids any single directory listing limits and scales horizontally.
 *   **Migration Throughput**: Migrating 1 billion entries will take significant time. Parallelization is mandatory. Tessera's migration tools support parallel workers.
-*   **Cloud Storage Costs**: Storing 1B+ entries and associated tiles in GCS will require terabytes of storage. Plan for storage costs and potential egress costs if reading from Trillian across clouds.
-*   **Trillian Load**: The source Trillian database must be able to handle the sustained read load required to export 1B entries. We could avoid gRPC completely and access the DB directly to avoid this.
+*   **Cloud Storage Costs**: Storing 1B+ entries and associated tiles in GCS will require terabytes of storage.
+*   **Trillian Load**: The source Trillian database must be able to handle the sustained read load required to export 1B entries. That said, there's no strict timelimit for this so it can take a while
+   * We should make the fetching parallel: currently it's not
+   * We could avoid gRPC completely and access the DB directly to avoid the API overhead
+*   **Tessera load**: Currently we use the normal Appender.add API
+   * Could just compute the merkle tree and write the tiles directly to disk
 *   **Resumability**: The migration tool should support resuming from a specific index to handle failures without restarting the entire process.
 
 ## 6. Testing Strategy
@@ -151,7 +158,8 @@ To ensure correctness and maintain API compatibility without changes, we will em
 
 ## 7. Decisions Made
 *   **Storage Backend**: We will target **POSIX** first for local testing and initial implementation, but we will need to support **GCS** as well for production readiness (especially for scale).
-*   **Key Management**: We will keep using the **same key** as the existing Rekor log for signing the checkpoint in the migrated Tessera log, to avoid breaking trust for existing clients.
+*   **Key Management**: We will keep using the **same key** as the existing Rekor log for signing the checkpoint in the migrated Tessera log, to avoid breaking trust for existing clients. Tessera checkpoint signing requires some hacks currently as
+the rekor keys are not compatible.
 
 ## 8. Architectural Notes
 
@@ -163,8 +171,17 @@ While the current implementation applies the Tessera backend globally, it could 
 
 ## 9. Known Issues & Limitations
 
+### Tessera API performance
+
+Very likely we should not use Appender.Add() just for performance reasons -- e.g. checkpoint signing is a waste during migration. We could just create the tiles
+manually.
+
 ### Integrated Time Preservation
 During migration from Trillian to Tessera, the original `integratedTime` (the timestamp of when the entry was added to the log) is currently not preserved.
 *   **Cause**: Tessera's `Appender` automatically assigns the current time to new entries and does not support passing a historical timestamp during backfill.
 *   **Impact**: Migrated entries will have incorrect integratedTime, leading to incorrect signedEntryTimestamps
 *   **Workaround for Testing**: The differential test script ignores this field when comparing API responses.
+
+### Checkpoint Signing
+
+The basic Appender.Add() checkpoint signer  is not compatible (requires ed22519 and an origin name without spaces). The migration tool currently hacks around this.

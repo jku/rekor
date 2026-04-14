@@ -53,12 +53,14 @@ func TestTesseraMigrate(t *testing.T) {
 	// 2. Run tessera-migrate
 	// We assume it was built by the calling script (e.g. tests/e2e-test.sh) and is in the root directory
 	t.Log("Running migration...")
+	origin := fmt.Sprintf("%s - %d", hostname, treeID)
 	migrateCmd := exec.Command("../tessera-migrate",
 		"-trillian-addr", "localhost:8090",
 		"-tree-id", fmt.Sprintf("%d", treeID),
 		"-tessera-dir", tempDir,
 		"-batch-size", "50",
-		"-origin", hostname,
+		"-origin", origin,
+		"-signer", os.Getenv("REKOR_TEST_KEY_PATH"),
 	)
 	
 	output, err := migrateCmd.CombinedOutput()
